@@ -40,11 +40,13 @@ int main(void)
     BOARD_InitDebugConsole();
     BOARD_InitMemory();
 
-    PRINTF("hello world.\r\n");
-
     while (1)
     {
-        ch = GETCHAR();
-        PUTCHAR(ch);
+        PRINTF("hello world.\r\n");
+        for (long i = 0; i < 200000000; i++) {
+            ;
+        }
+        //ch = GETCHAR();
+        //PUTCHAR(ch);
     }
 }
