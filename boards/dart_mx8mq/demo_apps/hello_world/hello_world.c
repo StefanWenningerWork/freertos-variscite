@@ -43,7 +43,7 @@ int main(void)
     while (1)
     {
         PRINTF("hello world.\r\n");
-        for (long i = 0; i < 200000000; i++) {
+        for (long i = 0; i < 20000000; i++) {
             ;
         }
         //ch = GETCHAR();
