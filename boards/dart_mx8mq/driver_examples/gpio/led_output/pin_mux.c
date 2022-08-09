@@ -44,7 +44,7 @@ BOARD_InitPins:
 - pin_list:
   - {pin_num: B6, peripheral: UART3, signal: uart_rx, pin_signal: UART3_RXD, PUE: Enabled, SRE: MEDIUM}
   - {pin_num: D6, peripheral: UART3, signal: uart_tx, pin_signal: UART3_TXD, PUE: Enabled, SRE: MEDIUM}
-  - {pin_num: K6, peripheral: GPIO4, signal: 'gpio_io, 99', pin_signal: GPIO4_IO03}
+  - {pin_num: K6, peripheral: GPIO3, signal: 'gpio_io, 80', pin_signal: GPIO3_IO16}
  * BE CAREFUL MODIFYING THIS COMMENT - IT IS YAML SETTINGS FOR TOOLS ***********
  */
 
@@ -55,7 +55,7 @@ BOARD_InitPins:
  *
  * END ****************************************************************************************************************/
 void BOARD_InitPins(void) {                                /*!< Function assigned for the core: Cortex-M4[m4] */
-    IOMUXC_SetPinMux(IOMUXC_SAI1_RXD1_GPIO4_IO03, 0U);
+    IOMUXC_SetPinMux(IOMUXC_NAND_READY_B_GPIO3_IO16, 0U);
     IOMUXC_SetPinMux(IOMUXC_UART3_RXD_UART3_RX, 0U);
     IOMUXC_SetPinConfig(IOMUXC_UART3_RXD_UART3_RX, 
                         IOMUXC_SW_PAD_CTL_PAD_DSE(6U) |
