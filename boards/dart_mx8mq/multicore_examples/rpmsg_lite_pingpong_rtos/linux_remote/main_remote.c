@@ -46,6 +46,10 @@ static volatile THE_MESSAGE msg = {0};
 static char helloMsg[13];
 #endif /* RPMSG_LITE_MASTER_IS_LINUX */
 
+#define M4_MSG "Old age should burn and rave at close of day"
+#define KERNEL_MSG_LENGTH 38
+static char kernelMsg[38];
+
 /*******************************************************************************
  * Prototypes
  ******************************************************************************/
@@ -121,16 +125,20 @@ static void app_task(void *param)
     /* Wait Hello handshake message from Remote Core. */
     (void)rpmsg_queue_recv(my_rpmsg, my_queue, (uint32_t *)&remote_addr, helloMsg, sizeof(helloMsg), ((void *)0),
                            RL_BLOCK);
+    (void)PRINTF("recv Handshake: %s\r\n", helloMsg);
 #endif /* RPMSG_LITE_MASTER_IS_LINUX */
 
     while (msg.DATA <= 100U)
     {
         (void)PRINTF("Waiting for ping...\r\n");
-        (void)rpmsg_queue_recv(my_rpmsg, my_queue, (uint32_t *)&remote_addr, (char *)&msg, sizeof(THE_MESSAGE),
+        (void)rpmsg_queue_recv(my_rpmsg, my_queue, (uint32_t *)&remote_addr, kernelMsg, KERNEL_MSG_LENGTH,
                                ((void *)0), RL_BLOCK);
+        (void)PRINTF("recv from Cortex-A53: %s\r\n", kernelMsg);
+
         msg.DATA++;
+        
         (void)PRINTF("Sending pong...\r\n");
-        (void)rpmsg_lite_send(my_rpmsg, my_ept, remote_addr, (char *)&msg, sizeof(THE_MESSAGE), RL_BLOCK);
+        (void)rpmsg_lite_send(my_rpmsg, my_ept, remote_addr, (char *)M4_MSG, sizeof(M4_MSG), RL_BLOCK);
     }
 
     (void)PRINTF("Ping pong done, deinitializing...\r\n");
