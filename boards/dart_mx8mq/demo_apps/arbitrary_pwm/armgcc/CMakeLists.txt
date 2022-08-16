@@ -61,6 +61,8 @@ include(utility_debug_console_lite_MIMX8MQ6)
 
 include(utility_assert_lite_MIMX8MQ6)
 
+include(driver_igpio_MIMX8MQ6)
+
 include(driver_iuart_MIMX8MQ6)
 
 include(driver_ipwm_MIMX8MQ6)
