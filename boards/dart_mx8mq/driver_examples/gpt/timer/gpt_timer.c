@@ -23,6 +23,9 @@
         (CLOCK_GetRootPostDivider(kCLOCK_RootGpt1)) / 2 /* SYSTEM PLL1 DIV2 */
 #define EXAMPLE_GPT_IRQHandler GPT1_IRQHandler
 
+#define EXAMPLE_LED_GPIO     GPIO3
+#define EXAMPLE_LED_GPIO_PIN 16U
+
 /*******************************************************************************
  * Prototypes
  ******************************************************************************/
@@ -57,6 +60,9 @@ int main(void)
     uint32_t gptFreq;
     gpt_config_t gptConfig;
 
+    /* Define the init structure for the output LED pin*/
+    gpio_pin_config_t led_config = {kGPIO_DigitalOutput, 0, kGPIO_NoIntmode};
+
     /* Board pin, clock, debug console init */
     /* Board specific RDC settings */
     BOARD_RdcInit();
@@ -65,6 +71,9 @@ int main(void)
     BOARD_BootClockRUN();
     BOARD_InitDebugConsole();
     BOARD_InitMemory();
+
+    /* Init output LED GPIO. */
+    GPIO_PinInit(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, &led_config);
 
     CLOCK_SetRootMux(kCLOCK_RootGpt1, kCLOCK_GptRootmuxSysPll1Div2); /* Set GPT1 source to SYSTEM PLL1 DIV2 400MHZ */
     CLOCK_SetRootDivider(kCLOCK_RootGpt1, 1U, 4U);                   /* Set root clock to 400MHZ / 4 = 100MHZ */
@@ -105,6 +114,8 @@ int main(void)
         if (true == gptIsrFlag)
         {
             PRINTF("\r\n GPT interrupt is occurred !");
+            GPIO_PinWrite(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, 1U);
+            GPIO_PinWrite(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, 0U);
             gptIsrFlag = false;
         }
         else
