@@ -16,9 +16,9 @@
 /*******************************************************************************
  * Definitions
  ******************************************************************************/
-#define DEMO_PWM_BASEADDR   PWM2
-#define DEMO_PWM_IRQn       PWM2_IRQn
-#define DEMO_PWM_IRQHandler PWM2_IRQHandler
+#define DEMO_ARBITRARY_PWM_BASEADDR   PWM2
+#define DEMO_ARBITRARY_PWM_IRQn       PWM2_IRQn
+#define DEMO_ARBITRARY_PWM_IRQHandler PWM2_IRQHandler
 /*! @brief PWM period value. PWMO (Hz) = PCLK(Hz) / (period +2) */
 #define PWM_PERIOD_VALUE 30
 
@@ -29,40 +29,22 @@
 /*******************************************************************************
  * Variables
  ******************************************************************************/
-volatile uint32_t pwmDutycycle = 0U;
-volatile bool pwmDutyUp        = true; /* Indicate PWM Duty cycle is increase or decrease */
 
 /*******************************************************************************
  * Code
  ******************************************************************************/
 
-void DEMO_PWM_IRQHandler(void)
+void DEMO_ARBITRARY_PWM_IRQHandler(void)
 {
-    // TODO: presumably all irq land here, need to check the flags separately to determine which isr is needed
-    /* Gets interrupt kPWM_FIFOEmptyFlag */
-    if (PWM_GetStatusFlags(DEMO_PWM_BASEADDR) & kPWM_FIFOEmptyFlag)
+    if (PWM_GetStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR) & kPWM_CompareFlag)
     {
-        if (pwmDutyUp)
-        {
-            /* Increase duty cycle until it reach limited value. */
-            if (++pwmDutycycle > PWM_PERIOD_VALUE)
-            {
-                pwmDutycycle = PWM_PERIOD_VALUE;
-                pwmDutyUp    = false;
-            }
-        }
-        else
-        {
-            /* Decrease duty cycle until it reach limited value. */
-            if (--pwmDutycycle == 0U)
-            {
-                pwmDutyUp = true;
-            }
-        }
-        /* Write duty cycle to PWM sample register.  */
-        PWM_SetSampleValue(DEMO_PWM_BASEADDR, pwmDutycycle);
-        /* Clear kPWM_FIFOEmptyFlag */
-        PWM_clearStatusFlags(DEMO_PWM_BASEADDR, kPWM_FIFOEmptyFlag);
+        PRINTF("PWM compare occurred\r\n");
+        PWM_clearStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR, kPWM_CompareFlag);
+    }
+    else if (PWM_GetStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR) & kPWM_RolloverFlag)
+    {
+        PRINTF("PWM rollover occurred\r\n");
+        PWM_clearStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR, kPWM_RolloverFlag);
     }
     SDK_ISR_EXIT_BARRIER;
 }
@@ -83,8 +65,9 @@ int main(void)
     BOARD_InitDebugConsole();
     BOARD_InitMemory();
 
-    PRINTF("\r\nPWM driver example.\r\n");
+    PRINTF("\r\nArbitrary PWM application example.\r\n");
 
+    /***** 1. Configure desired settings for PWM Control Register *****/
     /*!
      * config->enableStopMode = false;
      * config->enableDozeMode = false;
@@ -99,33 +82,39 @@ int main(void)
      * config->halfWordSwap = kPWM_HalfWordNoSwap;
      */
     PWM_GetDefaultConfig(&pwmConfig);
+    pwmConfig.outputConfig = kPWM_NoConfigure;
+    // pwmConfig.clockSource = kPWM_PeripheralClock; // TODO: prob use highest freq available here
+    // pwmConfig.prescale = 0U;
 
-    /* Initialize PWM module */
-    PWM_Init(DEMO_PWM_BASEADDR, &pwmConfig);
+    PWM_Init(DEMO_ARBITRARY_PWM_BASEADDR, &pwmConfig);
 
-    /* Enable FIFO empty interrupt */
-    PWM_EnableInterrupts(DEMO_PWM_BASEADDR, kPWM_FIFOEmptyInterruptEnable);
+    /***** 2. Enable desired interrupts in PWM Interrupt Register *****/
+    PWM_EnableInterrupts(DEMO_ARBITRARY_PWM_BASEADDR, kPWM_CompareInterruptEnable | kPWM_RolloverInterruptEnable);
 
-    /* Three initial samples be written to the PWM Sample Register */
-    for (pwmDutycycle = 0u; pwmDutycycle < 3; pwmDutycycle++)
+    /***** 3. Load initial samples into PWM Sample Register *****/
+    // NOTE: Sample Register is FIFO buffered.
+    //       The PWM module will run at the last configured duty-cycle setting if the FIFO is empty.
+    // TODO: Setting the FIFO water level to 1 should have the desired effect for setting duty-cycle lenghts once only.
+    PWM_SetSampleValue(DEMO_ARBITRARY_PWM_BASEADDR, 10);
+
+    /***** 4. Check (and reset) status bits *****/
+    if (PWM_GetStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR))
     {
-        PWM_SetSampleValue(DEMO_PWM_BASEADDR, pwmDutycycle);
-    }
-
-    /* Check and Clear interrupt status flags */
-    if (PWM_GetStatusFlags(DEMO_PWM_BASEADDR))
-    {
-        PWM_clearStatusFlags(DEMO_PWM_BASEADDR,
+        PWM_clearStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR,
                              kPWM_FIFOEmptyFlag | kPWM_RolloverFlag | kPWM_CompareFlag | kPWM_FIFOWriteErrorFlag);
     }
 
-    /* Write the period to the PWM Period Register */
-    PWM_SetPeriodValue(DEMO_PWM_BASEADDR, PWM_PERIOD_VALUE);
+    /***** 5. Set desired period in PWM Period Register *****/
+    // NOTE: PWM module is 16Bit
+    // NOTE: PWMO (HZ) = PCLK(Hz) / period+2
+    //       PWMO 1kHZ = 32kHz / 30+2
+    PWM_SetPeriodValue(DEMO_ARBITRARY_PWM_BASEADDR, PWM_PERIOD_VALUE);
 
+    /***** 6. Enable PWM *****/
     /* Enable PWM interrupt request */
-    EnableIRQ(DEMO_PWM_IRQn);
+    EnableIRQ(DEMO_ARBITRARY_PWM_IRQn);
 
-    PWM_StartTimer(DEMO_PWM_BASEADDR);
+    PWM_StartTimer(DEMO_ARBITRARY_PWM_BASEADDR);
 
     while (1)
     {
