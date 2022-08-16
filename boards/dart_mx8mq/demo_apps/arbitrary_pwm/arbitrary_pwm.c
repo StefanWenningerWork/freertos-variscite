@@ -11,6 +11,7 @@
 #include "clock_config.h"
 #include "board.h"
 #include "fsl_pwm.h"
+#include "fsl_gpio.h"
 
 #include "fsl_common.h"
 /*******************************************************************************
@@ -21,6 +22,9 @@
 #define DEMO_ARBITRARY_PWM_IRQHandler PWM2_IRQHandler
 /*! @brief PWM period value. PWMO (Hz) = PCLK(Hz) / (period +2) */
 #define PWM_PERIOD_VALUE 30
+
+#define EXAMPLE_LED_GPIO     GPIO3
+#define EXAMPLE_LED_GPIO_PIN 16U
 
 /*******************************************************************************
  * Prototypes
@@ -38,12 +42,12 @@ void DEMO_ARBITRARY_PWM_IRQHandler(void)
 {
     if (PWM_GetStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR) & kPWM_CompareFlag)
     {
-        PRINTF("PWM compare occurred\r\n");
+        GPIO_PinWrite(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, 1U);
         PWM_clearStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR, kPWM_CompareFlag);
     }
     else if (PWM_GetStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR) & kPWM_RolloverFlag)
     {
-        PRINTF("PWM rollover occurred\r\n");
+        GPIO_PinWrite(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, 0U);
         PWM_clearStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR, kPWM_RolloverFlag);
     }
     SDK_ISR_EXIT_BARRIER;
@@ -55,6 +59,8 @@ void DEMO_ARBITRARY_PWM_IRQHandler(void)
 int main(void)
 {
     pwm_config_t pwmConfig;
+    /* Define the init structure for the output LED pin*/
+    gpio_pin_config_t led_config = {kGPIO_DigitalOutput, 0, kGPIO_NoIntmode};
 
     /* Board pin, clock, debug console init */
     /* Board specific RDC settings */
@@ -66,6 +72,9 @@ int main(void)
     BOARD_InitMemory();
 
     PRINTF("\r\nArbitrary PWM application example.\r\n");
+
+    /* Init output LED GPIO. */
+    GPIO_PinInit(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, &led_config);
 
     /***** 1. Configure desired settings for PWM Control Register *****/
     /*!
