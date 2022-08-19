@@ -12,6 +12,7 @@
 #include "board.h"
 #include "fsl_pwm.h"
 #include "fsl_gpio.h"
+#include "fsl_clock.h"
 
 #include "fsl_common.h"
 /*******************************************************************************
@@ -33,6 +34,7 @@
 /*******************************************************************************
  * Variables
  ******************************************************************************/
+pwm_config_t pwmConfig;
 
 /*******************************************************************************
  * Code
@@ -53,12 +55,54 @@ void DEMO_ARBITRARY_PWM_IRQHandler(void)
     SDK_ISR_EXIT_BARRIER;
 }
 
+void pulse(uint64_t length_ns) {
+    /* 1. Stop PWM timer */
+    // NOTE: no two pulses can happen at the same time
+    //       maybe the kernel char device can block during the pulse and not allow another thread to access char device at the same time
+    //       PWM does not block, maybe have another rpmsg call "finished?" that checks a flag set by rollover ISR. Kernel driver blocks until that is set.
+    PWM_StopTimer(DEMO_ARBITRARY_PWM_BASEADDR);
+
+    /* 2. Setup Clock and PWM */
+    if (length_ns >= 999000000) {   //999 - 1s
+        pwmConfig.clockSource = kPWM_LowFrequencyClock;
+        pwmConfig.prescale = 4000U;
+        PWM_Init(DEMO_ARBITRARY_PWM_BASEADDR, &pwmConfig);
+
+        uint64_t counter_steps = length_ns / 1000000000;
+        // NOTE: PWM module is 16Bit
+        // NOTE: PWMO (HZ) = PCLK(Hz) / period+2
+        //       PWMO 1kHZ = 32kHz / 30+2
+        // NOTE: PWM runs two extra steps. These steps are put on top of the desired steps.
+        // NOTE: original idea was to have the two extra steps infront of the set high ISR.
+        //       this is will cause the pulse to be delayed by up to 2s in the seconds range
+        PWM_SetPeriodValue(DEMO_ARBITRARY_PWM_BASEADDR, counter_steps);
+    }
+    else if (length_ns >= 999000) { //999 - 1ms
+        pwmConfig.clockSource = kPWM_LowFrequencyClock;
+        pwmConfig.prescale = 32U;
+        PWM_Init(DEMO_ARBITRARY_PWM_BASEADDR, &pwmConfig);
+    }
+    else if (length_ns >= 999) {    //999 - 1us
+        pwmConfig.clockSource = kPWM_PeripheralClock;
+        pwmConfig.prescale = 1U;
+        PWM_Init(DEMO_ARBITRARY_PWM_BASEADDR, &pwmConfig);
+
+        CLOCK_UpdateRoot(kClock_RootPwm2, kCLOCK_PwmRootmuxOsc25m, 1U, 25U);
+    }
+    else {                          //999 - 1ns
+        pwmConfig.clockSource = kPWM_PeripheralClock;
+        pwmConfig.prescale = 1U;
+        PWM_Init(DEMO_ARBITRARY_PWM_BASEADDR, &pwmConfig);
+
+        CLOCK_UpdateRoot(kClock_RootPwm2, kCLOCK_PwmRootmuxSystemPll3, 1U, 1U);
+    }
+}
+
 /*!
  * @brief Main function
  */
 int main(void)
 {
-    pwm_config_t pwmConfig;
     /* Define the init structure for the output LED pin*/
     gpio_pin_config_t led_config = {kGPIO_DigitalOutput, 0, kGPIO_NoIntmode};
 
@@ -77,7 +121,7 @@ int main(void)
     GPIO_PinInit(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, &led_config);
 
     /***** 1. Configure desired settings for PWM Control Register *****/
-    /*!
+    /* default config:
      * config->enableStopMode = false;
      * config->enableDozeMode = false;
      * config->enableWaitMode = false;
@@ -92,8 +136,7 @@ int main(void)
      */
     PWM_GetDefaultConfig(&pwmConfig);
     pwmConfig.outputConfig = kPWM_NoConfigure;
-    // pwmConfig.clockSource = kPWM_PeripheralClock; // TODO: prob use highest freq available here
-    // pwmConfig.prescale = 0U;
+    pwmConfig.fifoWater = kPWM_FIFOWaterMark_1;
 
     PWM_Init(DEMO_ARBITRARY_PWM_BASEADDR, &pwmConfig);
 
@@ -103,8 +146,7 @@ int main(void)
     /***** 3. Load initial samples into PWM Sample Register *****/
     // NOTE: Sample Register is FIFO buffered.
     //       The PWM module will run at the last configured duty-cycle setting if the FIFO is empty.
-    // TODO: Setting the FIFO water level to 1 should have the desired effect for setting duty-cycle lenghts once only.
-    PWM_SetSampleValue(DEMO_ARBITRARY_PWM_BASEADDR, 10);
+    PWM_SetSampleValue(DEMO_ARBITRARY_PWM_BASEADDR, 2);
 
     /***** 4. Check (and reset) status bits *****/
     if (PWM_GetStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR))
