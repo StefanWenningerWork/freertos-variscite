@@ -44,18 +44,16 @@ void DEMO_ARBITRARY_PWM_IRQHandler(void)
 {
     if (PWM_GetStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR) & kPWM_CompareFlag)
     {
-        GPIO_PinWrite(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, 1U);
+        GPIO_PinWrite(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, 0U);
         PWM_clearStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR, kPWM_CompareFlag);
     }
-    else if (PWM_GetStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR) & kPWM_RolloverFlag)
-    {
-        GPIO_PinWrite(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, 0U);
-        PWM_clearStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR, kPWM_RolloverFlag);
-    }
+
+    PWM_StopTimer(DEMO_ARBITRARY_PWM_BASEADDR);
     SDK_ISR_EXIT_BARRIER;
 }
 
 void pulse(uint64_t length_ns) {
+    uint64_t counter_steps = 0;
     /* 1. Stop PWM timer */
     // NOTE: no two pulses can happen at the same time
     //       maybe the kernel char device can block during the pulse and not allow another thread to access char device at the same time
@@ -63,31 +61,28 @@ void pulse(uint64_t length_ns) {
     PWM_StopTimer(DEMO_ARBITRARY_PWM_BASEADDR);
 
     /* 2. Setup Clock and PWM */
-    if (length_ns >= 999000000) {   //999 - 1s
+    if (length_ns > 999000000) {   //999 - 1s
         pwmConfig.clockSource = kPWM_LowFrequencyClock;
         pwmConfig.prescale = 4000U;
         PWM_Init(DEMO_ARBITRARY_PWM_BASEADDR, &pwmConfig);
 
-        uint64_t counter_steps = length_ns / 1000000000;
-        // NOTE: PWM module is 16Bit
-        // NOTE: PWMO (HZ) = PCLK(Hz) / period+2
-        //       PWMO 1kHZ = 32kHz / 30+2
-        // NOTE: PWM runs two extra steps. These steps are put on top of the desired steps.
-        // NOTE: original idea was to have the two extra steps infront of the set high ISR.
-        //       this is will cause the pulse to be delayed by up to 2s in the seconds range
-        PWM_SetPeriodValue(DEMO_ARBITRARY_PWM_BASEADDR, counter_steps);
+        counter_steps = (length_ns / 1000000000) * 8;
     }
-    else if (length_ns >= 999000) { //999 - 1ms
+    else if (length_ns > 999000) { //999 - 1ms
         pwmConfig.clockSource = kPWM_LowFrequencyClock;
         pwmConfig.prescale = 32U;
         PWM_Init(DEMO_ARBITRARY_PWM_BASEADDR, &pwmConfig);
+
+        counter_steps = (length_ns / 1000000);
     }
-    else if (length_ns >= 999) {    //999 - 1us
+    else if (length_ns > 999) {    //999 - 1us
         pwmConfig.clockSource = kPWM_PeripheralClock;
         pwmConfig.prescale = 1U;
         PWM_Init(DEMO_ARBITRARY_PWM_BASEADDR, &pwmConfig);
 
         CLOCK_UpdateRoot(kClock_RootPwm2, kCLOCK_PwmRootmuxOsc25m, 1U, 25U);
+
+        counter_steps = (length_ns / 1000);
     }
     else {                          //999 - 1ns
         pwmConfig.clockSource = kPWM_PeripheralClock;
@@ -95,7 +90,23 @@ void pulse(uint64_t length_ns) {
         PWM_Init(DEMO_ARBITRARY_PWM_BASEADDR, &pwmConfig);
 
         CLOCK_UpdateRoot(kClock_RootPwm2, kCLOCK_PwmRootmuxSystemPll3, 1U, 1U);
+
+        counter_steps = (length_ns);
     }
+
+    // NOTE: PWM module is 16Bit
+    // NOTE: PWMO (HZ) = PCLK(Hz) / period+2    // TODO: is this really accurate?
+    //       PWMO 1kHZ = 32kHz / 30+2
+    PWM_SetPeriodValue(DEMO_ARBITRARY_PWM_BASEADDR, counter_steps); // PWM_PR[counter_steps] + 1
+    PWM_SetSampleValue(DEMO_ARBITRARY_PWM_BASEADDR, counter_steps);
+    // TODO: see if first pulse is with this sample value or the default one
+
+    /* 3. Set pin high/low */
+    // TODO: pin and high/low needs to be passed into function
+    GPIO_PinWrite(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, 1U);
+
+    /* 4. Start PWM timer */
+    PWM_StartTimer(DEMO_ARBITRARY_PWM_BASEADDR);
 }
 
 /*!
@@ -141,12 +152,12 @@ int main(void)
     PWM_Init(DEMO_ARBITRARY_PWM_BASEADDR, &pwmConfig);
 
     /***** 2. Enable desired interrupts in PWM Interrupt Register *****/
-    PWM_EnableInterrupts(DEMO_ARBITRARY_PWM_BASEADDR, kPWM_CompareInterruptEnable | kPWM_RolloverInterruptEnable);
+    PWM_EnableInterrupts(DEMO_ARBITRARY_PWM_BASEADDR, kPWM_CompareInterruptEnable);
 
     /***** 3. Load initial samples into PWM Sample Register *****/
     // NOTE: Sample Register is FIFO buffered.
     //       The PWM module will run at the last configured duty-cycle setting if the FIFO is empty.
-    PWM_SetSampleValue(DEMO_ARBITRARY_PWM_BASEADDR, 2);
+    PWM_SetSampleValue(DEMO_ARBITRARY_PWM_BASEADDR, 1);
 
     /***** 4. Check (and reset) status bits *****/
     if (PWM_GetStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR))
@@ -165,9 +176,9 @@ int main(void)
     /* Enable PWM interrupt request */
     EnableIRQ(DEMO_ARBITRARY_PWM_IRQn);
 
-    PWM_StartTimer(DEMO_ARBITRARY_PWM_BASEADDR);
-
     while (1)
     {
+        pulse(1000000000);
+        SDK_DelayAtLeastUs(3000000, SDK_DEVICE_MAXIMUM_CPU_CLOCK_FREQUENCY);
     }
 }
