@@ -80,7 +80,7 @@ void pulse(uint64_t length_ns) {
         pwmConfig.prescale = 1U;
         PWM_Init(DEMO_ARBITRARY_PWM_BASEADDR, &pwmConfig);
 
-        CLOCK_UpdateRoot(kClock_RootPwm2, kCLOCK_PwmRootmuxOsc25m, 1U, 25U);
+        CLOCK_UpdateRoot(kCLOCK_RootPwm2, kCLOCK_PwmRootmuxOsc25m, 1U, 25U);
 
         counter_steps = (length_ns / 1000);
     }
@@ -89,7 +89,7 @@ void pulse(uint64_t length_ns) {
         pwmConfig.prescale = 1U;
         PWM_Init(DEMO_ARBITRARY_PWM_BASEADDR, &pwmConfig);
 
-        CLOCK_UpdateRoot(kClock_RootPwm2, kCLOCK_PwmRootmuxSystemPll3, 1U, 1U);
+        CLOCK_UpdateRoot(kCLOCK_RootPwm2, kCLOCK_PwmRootmuxSystemPll3, 1U, 1U);
 
         counter_steps = (length_ns);
     }
