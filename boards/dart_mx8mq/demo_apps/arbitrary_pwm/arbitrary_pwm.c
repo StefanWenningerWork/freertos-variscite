@@ -44,15 +44,18 @@ void DEMO_ARBITRARY_PWM_IRQHandler(void)
 {
     if (PWM_GetStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR) & kPWM_CompareFlag)
     {
+        PRINTF("Set pin low\r\n");
         GPIO_PinWrite(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, 0U);
         PWM_clearStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR, kPWM_CompareFlag);
     }
 
+    PRINTF("Stop timer\r\n");
     PWM_StopTimer(DEMO_ARBITRARY_PWM_BASEADDR);
     SDK_ISR_EXIT_BARRIER;
 }
 
 void pulse(uint64_t length_ns) {
+    PRINTF("Starting pulse config...\r\n");
     uint64_t counter_steps = 0;
     /* 1. Stop PWM timer */
     // NOTE: no two pulses can happen at the same time
@@ -100,12 +103,15 @@ void pulse(uint64_t length_ns) {
     PWM_SetPeriodValue(DEMO_ARBITRARY_PWM_BASEADDR, counter_steps); // PWM_PR[counter_steps] + 1
     PWM_SetSampleValue(DEMO_ARBITRARY_PWM_BASEADDR, counter_steps);
     // TODO: see if first pulse is with this sample value or the default one
+    PRINTF("Set Sample to %lu\r\n", counter_steps);
 
     /* 3. Set pin high/low */
     // TODO: pin and high/low needs to be passed into function
+    PRINTF("Set pin high\r\n");
     GPIO_PinWrite(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, 1U);
 
     /* 4. Start PWM timer */
+    PRINTF("start timer\r\n");
     PWM_StartTimer(DEMO_ARBITRARY_PWM_BASEADDR);
 }
 
