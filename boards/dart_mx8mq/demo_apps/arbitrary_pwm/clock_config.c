@@ -141,7 +141,6 @@ void BOARD_BootClockRUN(void)
 
     CLOCK_SetRootMux(kCLOCK_RootPwm2, kCLOCK_PwmRootmuxSystemPll3);     /* set PWM source to SYSTEM PLL3 = 1000MHZ */
     CLOCK_SetRootDivider(kCLOCK_RootPwm2, 1U, 1U);                      /* Set root clock to 1000MHZ/ 1= 1000MHZ */
-    CLOCK_EnableClock(kCLOCK_RootPwm2); /* Enable PWM2 clock */
 
     //use CLOCK_UpdateRoot for dynamic switching for ranges
 
