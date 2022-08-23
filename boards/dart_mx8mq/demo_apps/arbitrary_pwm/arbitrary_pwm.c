@@ -103,7 +103,7 @@ void pulse(uint64_t length_ns) {
     PWM_SetPeriodValue(DEMO_ARBITRARY_PWM_BASEADDR, counter_steps); // PWM_PR[counter_steps] + 1
     PWM_SetSampleValue(DEMO_ARBITRARY_PWM_BASEADDR, counter_steps);
     // TODO: see if first pulse is with this sample value or the default one
-    PRINTF("Set Sample to %lu\r\n", counter_steps);
+    PRINTF("Set Sample to %u\r\n", counter_steps);
 
     /* 3. Set pin high/low */
     // TODO: pin and high/low needs to be passed into function
@@ -184,7 +184,13 @@ int main(void)
 
     while (1)
     {
-        pulse(1000000000);
+        pulse(1000);    //1us
+        SDK_DelayAtLeastUs(1000000, SDK_DEVICE_MAXIMUM_CPU_CLOCK_FREQUENCY);
+        pulse(1000000); //1ms
+        SDK_DelayAtLeastUs(1000000, SDK_DEVICE_MAXIMUM_CPU_CLOCK_FREQUENCY);
+        pulse(1000000000);  //1s
+        SDK_DelayAtLeastUs(1000000, SDK_DEVICE_MAXIMUM_CPU_CLOCK_FREQUENCY);
+        pulse(2000000000);  //2s
         SDK_DelayAtLeastUs(3000000, SDK_DEVICE_MAXIMUM_CPU_CLOCK_FREQUENCY);
     }
 }
