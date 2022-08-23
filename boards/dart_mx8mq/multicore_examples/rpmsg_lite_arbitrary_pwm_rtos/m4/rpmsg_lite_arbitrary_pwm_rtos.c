@@ -51,22 +51,25 @@ static char helloMsg[13];
 #define EXAMPLE_LED_GPIO_PIN 16U
 
 typedef enum {
-    SETUP = 0,
-    FIRE
+    APWM_OPERATION_SETUP = (uint8_t)0,
+    APWM_OPERATION_FIRE  = (uint8_t)1
 } APWM_OPERATION;
 
 typedef struct {
-    GPIO_Type *base;
+    //GPIO_Type *base;    // TODO: this needs to be converted from input tp GPIO_Type
+    uint32_t base;
     uint32_t pin;
 } GPIO_PIN;
 
 typedef struct {
+    uint32_t pulse_length_ns;
     APWM_OPERATION operation;
     GPIO_PIN gpio;
-    uint64_t pulse_length_ns;
 } APWM_INSTRUCTION;
 
 static volatile APWM_INSTRUCTION instruction = {0};
+
+GPIO_Type *bases[] = {GPIO1, GPIO2, GPIO3, GPIO4, GPIO5};
 
 /*******************************************************************************
  * Prototypes
@@ -77,6 +80,9 @@ static volatile APWM_INSTRUCTION instruction = {0};
  ******************************************************************************/
 static TaskHandle_t app_task_handle = NULL;
 pwm_config_t pwmConfig;
+gpio_pin_config_t default_config = {kGPIO_DigitalOutput, 0, kGPIO_NoIntmode};
+GPIO_Type* curr_base;
+uint32_t curr_pin;
 
 /*******************************************************************************
  * Code
@@ -85,7 +91,7 @@ void DEMO_ARBITRARY_PWM_IRQHandler(void) {
     if (PWM_GetStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR) & kPWM_CompareFlag)
     {
         PRINTF("Set pin low\r\n");
-        GPIO_PinWrite(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, 0U);
+        GPIO_PinWrite(curr_base, curr_pin, 0U);
         PWM_clearStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR, kPWM_CompareFlag);
     }
 
@@ -112,7 +118,7 @@ void SystemInitHook(void)
 }
 #endif /* MCMGR_USED */
 
-void pulse(uint64_t length_ns) {    // TODO: this should have base and pin as parameters
+void pulse(GPIO_Type* base, uint32_t pin, uint64_t length_ns) {
     PRINTF("Starting pulse config...\r\n");
     uint64_t counter_steps = 0;
     /* 1. Stop PWM timer */
@@ -166,7 +172,7 @@ void pulse(uint64_t length_ns) {    // TODO: this should have base and pin as pa
     /* 3. Set pin high/low */
     // TODO: pin and high/low needs to be passed into function
     PRINTF("Set pin high\r\n");
-    GPIO_PinWrite(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, 1U);
+    GPIO_PinWrite(base, pin, 1U);
 
     /* 4. Start PWM timer */
     PRINTF("start timer\r\n");
@@ -274,9 +280,22 @@ static void app_task(void *param)
         PRINTF("Waiting for instruction...\r\n");
         rpmsg_queue_recv(my_rpmsg, my_queue, (uint32_t *)&remote_addr, (char *)&instruction, sizeof(APWM_INSTRUCTION), ((void *)0), RL_BLOCK);  // TODO: check if queue is best comm mechanism for this usecase
         PRINTF("Received instruction from A53:\r\n");
+        PRINTF("\tlength: (d)%d\r\n", instruction.pulse_length_ns);
+        PRINTF("\tlength: (x)%x\r\n", instruction.pulse_length_ns);
+        PRINTF("\tlength: (u)%u\r\n", instruction.pulse_length_ns);
         PRINTF("\top: %d\r\n", instruction.operation);
-        PRINTF("\tgpio: base: %d, pin: %d\r\n", *instruction.gpio.base, instruction.gpio.pin);
-        PRINTF("\tlength: %u\r\n", instruction.pulse_length_ns);
+        PRINTF("\tgpio: base: %d, pin: %d\r\n", instruction.gpio.base, instruction.gpio.pin);
+
+        if (instruction.operation == APWM_OPERATION_SETUP) {
+            PRINTF("calling pin init with base %d, pin %d (length %d)\r\n", bases[instruction.gpio.base], instruction.gpio.pin, instruction.pulse_length_ns);
+            //GPIO_PinInit(bases[instruction.gpio.base], instruction.gpio.pin, &default_config);
+        }
+        else {
+            curr_base = bases[instruction.gpio.base];
+            curr_pin = instruction.gpio.pin;
+            PRINTF("calling pulse with base %d, pin %d, length %d\r\n", curr_base, curr_pin, instruction.pulse_length_ns);
+            //pulse(curr_base, curr_pin, instruction.pulse_length_ns);
+        }
     }
 
     (void)PRINTF("instruction test done, deinitializing...\r\n");
@@ -301,10 +320,7 @@ static void app_task(void *param)
  */
 int main(void)
 {
-    /* Define the init structure for the output LED pin*/
-    gpio_pin_config_t led_config = {kGPIO_DigitalOutput, 0, kGPIO_NoIntmode};
-
-    /* Initialize standard SDK demo application pins */
+     /* Initialize standard SDK demo application pins */
     /* Board specific RDC settings */
     BOARD_RdcInit();
 
@@ -314,9 +330,6 @@ int main(void)
     BOARD_InitMemory();
 
     copyResourceTable();
-
-    /* Init output LED GPIO. */
-    GPIO_PinInit(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, &led_config);
 
     /* Init PWM */
     init_pwm();

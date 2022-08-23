@@ -46,7 +46,7 @@ Prepare the Demo
 4.  Using U-Boot command to run the demo.bin file. For details, please refer to Getting Started with MCUXpresso SDK i.MX 8M Quad.pdf
 5.  After running the demo.bin, using the "boot" command to boot the kernel on the A core terminal; 
 6.  After the kernel is boot, using "root" to login.
-7.  After login, make sure imx_rpmsg_pingpong kernel module is inserted (lsmod) or insert it (modprobe imx_rpmsg_pingpong).
+7.  After login, make sure imx_rpmsg_pingpong kernel module is inserted (lsmod) or insert it (modprobe imx_rpmsg_arbitrary_pwm).
 
 Running the demo
 ================
