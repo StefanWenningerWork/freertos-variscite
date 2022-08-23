@@ -19,6 +19,9 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include "fsl_pwm.h"
+#include "fsl_gpio.h"
+#include "fsl_clock.h"
 #include "fsl_uart.h"
 #include "rsc_table.h"
 /*******************************************************************************
@@ -59,7 +62,7 @@ typedef struct {
 
 typedef struct {
     APWM_OPERATION operation;
-    GPIO_PIN pin;
+    GPIO_PIN gpio;
     uint64_t pulse_length_ns;
 } APWM_INSTRUCTION;
 
@@ -210,7 +213,7 @@ void init_pwm(void) {
     // NOTE: PWM module is 16Bit
     // NOTE: PWMO (HZ) = PCLK(Hz) / period+2
     //       PWMO 1kHZ = 32kHz / 30+2
-    PWM_SetPeriodValue(DEMO_ARBITRARY_PWM_BASEADDR, PWM_PERIOD_VALUE);
+    PWM_SetPeriodValue(DEMO_ARBITRARY_PWM_BASEADDR, 1);
 
     /***** 6. Enable PWM *****/
     /* Enable PWM interrupt request */
@@ -263,8 +266,7 @@ static void app_task(void *param)
 
 #ifdef RPMSG_LITE_MASTER_IS_LINUX
     /* Wait Hello handshake message from Remote Core. */
-    (void)rpmsg_queue_recv(my_rpmsg, my_queue, (uint32_t *)&remote_addr, helloMsg, sizeof(helloMsg), ((void *)0),
-                           RL_BLOCK);
+    (void)rpmsg_queue_recv(my_rpmsg, my_queue, (uint32_t *)&remote_addr, helloMsg, sizeof(helloMsg), ((void *)0), RL_BLOCK);
     (void)PRINTF("recv Handshake: %s\r\n", helloMsg);
 #endif /* RPMSG_LITE_MASTER_IS_LINUX */
 
@@ -285,7 +287,6 @@ static void app_task(void *param)
     my_queue = ((void *)0);
     (void)rpmsg_ns_unbind(my_rpmsg, ns_handle);
     (void)rpmsg_lite_deinit(my_rpmsg);
-    msg.DATA = 0U;
 
     (void)PRINTF("Looping forever...\r\n");
 

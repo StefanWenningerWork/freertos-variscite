@@ -67,6 +67,12 @@ include(middleware_multicore_rpmsg_lite_imx8mq_m4_freertos_MIMX8MQ6)
 
 include(middleware_freertos-kernel_heap_4_MIMX8MQ6)
 
+include(driver_igpio_MIMX8MQ6)
+
+include(driver_iuart_MIMX8MQ6)
+
+include(driver_ipwm_MIMX8MQ6)
+
 include(driver_clock_MIMX8MQ6)
 
 include(driver_mu_MIMX8MQ6)
