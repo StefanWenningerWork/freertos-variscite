@@ -36,28 +36,60 @@
 #endif
 #define APP_RPMSG_READY_EVENT_DATA (1U)
 
-typedef struct the_message
-{
-    uint32_t DATA;
-} THE_MESSAGE, *THE_MESSAGE_PTR;
-
-static volatile THE_MESSAGE msg = {0};
-#ifdef RPMSG_LITE_MASTER_IS_LINUX
+#ifdef RPMSG_LITE_MASTER_IS_LINUX   // TODO: is this necessary?
 static char helloMsg[13];
 #endif /* RPMSG_LITE_MASTER_IS_LINUX */
 
-#define M4_MSG "Old age should burn and rave at close of day"
-#define KERNEL_MSG_LENGTH 38
-static char kernelMsg[38];
+#define DEMO_ARBITRARY_PWM_BASEADDR   PWM2
+#define DEMO_ARBITRARY_PWM_IRQn       PWM2_IRQn
+#define DEMO_ARBITRARY_PWM_IRQHandler PWM2_IRQHandler
+
+#define EXAMPLE_LED_GPIO     GPIO3  // TODO: this should not be necessary anymore soon
+#define EXAMPLE_LED_GPIO_PIN 16U
+
+typedef enum {
+    SETUP = 0,
+    FIRE
+} APWM_OPERATION;
+
+typedef struct {
+    GPIO_Type *base;
+    uint32_t pin;
+} GPIO_PIN;
+
+typedef struct {
+    APWM_OPERATION operation;
+    GPIO_PIN pin;
+    uint64_t pulse_length_ns;
+} APWM_INSTRUCTION;
+
+static volatile APWM_INSTRUCTION instruction = {0};
 
 /*******************************************************************************
  * Prototypes
  ******************************************************************************/
 
 /*******************************************************************************
- * Code
+ * Variables
  ******************************************************************************/
 static TaskHandle_t app_task_handle = NULL;
+pwm_config_t pwmConfig;
+
+/*******************************************************************************
+ * Code
+ ******************************************************************************/
+void DEMO_ARBITRARY_PWM_IRQHandler(void) {
+    if (PWM_GetStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR) & kPWM_CompareFlag)
+    {
+        PRINTF("Set pin low\r\n");
+        GPIO_PinWrite(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, 0U);
+        PWM_clearStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR, kPWM_CompareFlag);
+    }
+
+    PRINTF("Stop timer\r\n");
+    PWM_StopTimer(DEMO_ARBITRARY_PWM_BASEADDR);
+    SDK_ISR_EXIT_BARRIER;
+}
 
 static void app_nameservice_isr_cb(uint32_t new_ept, const char *new_ept_name, uint32_t flags, void *user_data)
 {
@@ -77,6 +109,114 @@ void SystemInitHook(void)
 }
 #endif /* MCMGR_USED */
 
+void pulse(uint64_t length_ns) {    // TODO: this should have base and pin as parameters
+    PRINTF("Starting pulse config...\r\n");
+    uint64_t counter_steps = 0;
+    /* 1. Stop PWM timer */
+    // NOTE: no two pulses can happen at the same time
+    //       maybe the kernel char device can block during the pulse and not allow another thread to access char device at the same time
+    //       PWM does not block, maybe have another rpmsg call "finished?" that checks a flag set by rollover ISR. Kernel driver blocks until that is set.
+    PWM_StopTimer(DEMO_ARBITRARY_PWM_BASEADDR);
+
+    /* 2. Setup Clock and PWM */
+    if (length_ns > 999000000) {   //999 - 1s
+        pwmConfig.clockSource = kPWM_LowFrequencyClock;
+        pwmConfig.prescale = 4000U;
+        PWM_Init(DEMO_ARBITRARY_PWM_BASEADDR, &pwmConfig);
+
+        counter_steps = (length_ns / 1000000000) * 8;
+    }
+    else if (length_ns > 999000) { //999 - 1ms
+        pwmConfig.clockSource = kPWM_LowFrequencyClock;
+        pwmConfig.prescale = 32U;
+        PWM_Init(DEMO_ARBITRARY_PWM_BASEADDR, &pwmConfig);
+
+        counter_steps = (length_ns / 1000000);
+    }
+    else if (length_ns > 999) {    //999 - 1us
+        pwmConfig.clockSource = kPWM_PeripheralClock;
+        pwmConfig.prescale = 1U;
+        PWM_Init(DEMO_ARBITRARY_PWM_BASEADDR, &pwmConfig);
+
+        CLOCK_UpdateRoot(kCLOCK_RootPwm2, kCLOCK_PwmRootmuxOsc25m, 1U, 25U);
+
+        counter_steps = (length_ns / 1000);
+    }
+    else {                          //999 - 1ns
+        pwmConfig.clockSource = kPWM_PeripheralClock;
+        pwmConfig.prescale = 1U;
+        PWM_Init(DEMO_ARBITRARY_PWM_BASEADDR, &pwmConfig);
+
+        CLOCK_UpdateRoot(kCLOCK_RootPwm2, kCLOCK_PwmRootmuxSystemPll3, 1U, 1U);
+
+        counter_steps = (length_ns);
+    }
+
+    // NOTE: PWM module is 16Bit
+    // NOTE: PWMO (HZ) = PCLK(Hz) / period+2    // TODO: is this really accurate?
+    //       PWMO 1kHZ = 32kHz / 30+2
+    PWM_SetPeriodValue(DEMO_ARBITRARY_PWM_BASEADDR, counter_steps); // PWM_PR[counter_steps] + 1
+    PWM_SetSampleValue(DEMO_ARBITRARY_PWM_BASEADDR, counter_steps);
+    // TODO: see if first pulse is with this sample value or the default one
+    PRINTF("Set Sample to %u\r\n", counter_steps);
+
+    /* 3. Set pin high/low */
+    // TODO: pin and high/low needs to be passed into function
+    PRINTF("Set pin high\r\n");
+    GPIO_PinWrite(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, 1U);
+
+    /* 4. Start PWM timer */
+    PRINTF("start timer\r\n");
+    PWM_StartTimer(DEMO_ARBITRARY_PWM_BASEADDR);
+}
+
+void init_pwm(void) {
+    /***** 1. Configure desired settings for PWM Control Register *****/
+    /* default config:
+     * config->enableStopMode = false;
+     * config->enableDozeMode = false;
+     * config->enableWaitMode = false;
+     * config->enableDebugMode = false;
+     * config->clockSource = kPWM_LowFrequencyClock;
+     * config->prescale = 0U;
+     * config->outputConfig = kPWM_SetAtRolloverAndClearAtcomparison;
+     * config->fifoWater = kPWM_FIFOWaterMark_2;
+     * config->sampleRepeat = kPWM_EachSampleOnce;
+     * config->byteSwap = kPWM_ByteNoSwap;
+     * config->halfWordSwap = kPWM_HalfWordNoSwap;
+     */
+    PWM_GetDefaultConfig(&pwmConfig);
+    pwmConfig.outputConfig = kPWM_NoConfigure;
+    pwmConfig.fifoWater = kPWM_FIFOWaterMark_1;
+
+    PWM_Init(DEMO_ARBITRARY_PWM_BASEADDR, &pwmConfig);
+
+    /***** 2. Enable desired interrupts in PWM Interrupt Register *****/
+    PWM_EnableInterrupts(DEMO_ARBITRARY_PWM_BASEADDR, kPWM_CompareInterruptEnable);
+
+    /***** 3. Load initial samples into PWM Sample Register *****/
+    // NOTE: Sample Register is FIFO buffered.
+    //       The PWM module will run at the last configured duty-cycle setting if the FIFO is empty.
+    PWM_SetSampleValue(DEMO_ARBITRARY_PWM_BASEADDR, 1);
+
+    /***** 4. Check (and reset) status bits *****/
+    if (PWM_GetStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR))
+    {
+        PWM_clearStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR,
+                             kPWM_FIFOEmptyFlag | kPWM_RolloverFlag | kPWM_CompareFlag | kPWM_FIFOWriteErrorFlag);
+    }
+
+    /***** 5. Set desired period in PWM Period Register *****/
+    // NOTE: PWM module is 16Bit
+    // NOTE: PWMO (HZ) = PCLK(Hz) / period+2
+    //       PWMO 1kHZ = 32kHz / 30+2
+    PWM_SetPeriodValue(DEMO_ARBITRARY_PWM_BASEADDR, PWM_PERIOD_VALUE);
+
+    /***** 6. Enable PWM *****/
+    /* Enable PWM interrupt request */
+    EnableIRQ(DEMO_ARBITRARY_PWM_IRQn);
+}
+
 static void app_task(void *param)
 {
     volatile uint32_t remote_addr;
@@ -86,7 +226,7 @@ static void app_task(void *param)
     volatile rpmsg_ns_handle ns_handle;
 
     /* Print the initial banner */
-    (void)PRINTF("\r\nRPMSG Ping-Pong FreeRTOS RTOS API Demo...\r\n");
+    (void)PRINTF("\r\nRPMSG Arbitrary PWM FreeRTOS Demo...\r\n");
 
 #ifdef MCMGR_USED
     uint32_t startupData;
@@ -128,20 +268,16 @@ static void app_task(void *param)
     (void)PRINTF("recv Handshake: %s\r\n", helloMsg);
 #endif /* RPMSG_LITE_MASTER_IS_LINUX */
 
-    while (msg.DATA <= 100U)
-    {
-        (void)PRINTF("Waiting for ping...\r\n");
-        (void)rpmsg_queue_recv(my_rpmsg, my_queue, (uint32_t *)&remote_addr, kernelMsg, KERNEL_MSG_LENGTH,
-                               ((void *)0), RL_BLOCK);
-        (void)PRINTF("recv from Cortex-A53: %s\r\n", kernelMsg);
-
-        msg.DATA++;
-        
-        (void)PRINTF("Sending pong...\r\n");
-        (void)rpmsg_lite_send(my_rpmsg, my_ept, remote_addr, (char *)M4_MSG, sizeof(M4_MSG), RL_BLOCK);
+    for (uint8_t i = 0; i < 10; i++) {
+        PRINTF("Waiting for instruction...\r\n");
+        rpmsg_queue_recv(my_rpmsg, my_queue, (uint32_t *)&remote_addr, (char *)&instruction, sizeof(APWM_INSTRUCTION), ((void *)0), RL_BLOCK);  // TODO: check if queue is best comm mechanism for this usecase
+        PRINTF("Received instruction from A53:\r\n");
+        PRINTF("\top: %d\r\n", instruction.operation);
+        PRINTF("\tgpio: base: %d, pin: %d\r\n", *instruction.gpio.base, instruction.gpio.pin);
+        PRINTF("\tlength: %u\r\n", instruction.pulse_length_ns);
     }
 
-    (void)PRINTF("Ping pong done, deinitializing...\r\n");
+    (void)PRINTF("instruction test done, deinitializing...\r\n");
 
     (void)rpmsg_lite_destroy_ept(my_rpmsg, my_ept);
     my_ept = ((void *)0);
@@ -164,6 +300,9 @@ static void app_task(void *param)
  */
 int main(void)
 {
+    /* Define the init structure for the output LED pin*/
+    gpio_pin_config_t led_config = {kGPIO_DigitalOutput, 0, kGPIO_NoIntmode};
+
     /* Initialize standard SDK demo application pins */
     /* Board specific RDC settings */
     BOARD_RdcInit();
@@ -174,6 +313,12 @@ int main(void)
     BOARD_InitMemory();
 
     copyResourceTable();
+
+    /* Init output LED GPIO. */
+    GPIO_PinInit(EXAMPLE_LED_GPIO, EXAMPLE_LED_GPIO_PIN, &led_config);
+
+    /* Init PWM */
+    init_pwm();
 
 #ifdef MCMGR_USED
     /* Initialize MCMGR before calling its API */

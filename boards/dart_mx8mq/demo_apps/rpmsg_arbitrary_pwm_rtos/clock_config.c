@@ -139,6 +139,9 @@ void BOARD_BootClockRUN(void)
     CLOCK_SetRootMux(kCLOCK_RootUart3, kCLOCK_UartRootmuxSysPll1Div10); /* Set UART source to SysPLL1 Div10 80MHZ */
     CLOCK_SetRootDivider(kCLOCK_RootUart3, 1U, 1U);                     /* Set root clock to 80MHZ/ 1= 80MHZ */
 
+    CLOCK_SetRootMux(kCLOCK_RootPwm2, kCLOCK_PwmRootmuxSystemPll3);     /* set PWM source to SYSTEM PLL3 = 1000MHZ */
+    CLOCK_SetRootDivider(kCLOCK_RootPwm2, 1U, 1U);                      /* Set root clock to 1000MHZ/ 1= 1000MHZ */
+
     CLOCK_EnableClock(kCLOCK_Rdc); /* Enable RDC clock */
 
     /* The purpose to enable the following modules clock is to make sure the M4 core could work normally when A53 core
