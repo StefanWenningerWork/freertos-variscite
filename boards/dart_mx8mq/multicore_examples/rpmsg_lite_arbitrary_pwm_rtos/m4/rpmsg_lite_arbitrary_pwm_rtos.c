@@ -293,14 +293,14 @@ static void app_task(void *param)
         pulse_length_ns = ((uint64_t)instruction.pulse_length_ns_HIGH << 32) | instruction.pulse_length_ns_LOW;
 
         if (instruction.operation == APWM_OPERATION_SETUP) {
-            sprintf(length_str, "%u", pulse_length_ns);
+            sprintf(length_str, "0x%lx%lx\r\n", (uint32_t)(pulse_length_ns >> 32), (uint32_t)pulse_length_ns);
             PRINTF("calling pin init with base %d, pin %d (length %s)\r\n", bases[instruction.gpio.base], instruction.gpio.pin, length_str);
             //GPIO_PinInit(bases[instruction.gpio.base], instruction.gpio.pin, &default_config);
         }
         else {
             curr_base = bases[instruction.gpio.base];
             curr_pin = instruction.gpio.pin;
-            sprintf(length_str, "%u", pulse_length_ns);
+            sprintf(length_str, "0x%lx%lx\r\n", (uint32_t)(pulse_length_ns >> 32), (uint32_t)pulse_length_ns);
             PRINTF("calling pulse with base %d, pin %d, length %s\r\n", curr_base, curr_pin, length_str);
             //pulse(curr_base, curr_pin, pulse_length_ns);
         }
