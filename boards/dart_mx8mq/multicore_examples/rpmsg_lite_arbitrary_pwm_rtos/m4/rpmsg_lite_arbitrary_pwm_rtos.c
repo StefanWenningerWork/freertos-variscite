@@ -51,8 +51,9 @@ static char helloMsg[13];
 #define EXAMPLE_LED_GPIO_PIN 16U
 
 typedef enum {
-    APWM_OPERATION_SETUP = (uint8_t)0,
-    APWM_OPERATION_FIRE  = (uint8_t)1
+    APWM_OPERATION_SETUP            = (uint32_t)0,
+    APWM_OPERATION_FIRE             = (uint32_t)1,
+    APWM_OPERATION_MAKE_ENUM_32BIT  = (uint32_t)0xffffffff  // hack to have operation be the same size in A53 and M4
 } APWM_OPERATION;
 
 typedef struct {
@@ -62,12 +63,18 @@ typedef struct {
 } GPIO_PIN;
 
 typedef struct {
-    uint32_t pulse_length_ns;
-    APWM_OPERATION operation;
-    GPIO_PIN gpio;
+    GPIO_PIN gpio;                  //4B+4B
+    uint32_t pulse_length_ns_HIGH;  //4B
+    uint32_t pulse_length_ns_LOW;   //4B
+    APWM_OPERATION operation;       //4B
 } APWM_INSTRUCTION;
 
-static volatile APWM_INSTRUCTION instruction = {0};
+static volatile APWM_INSTRUCTION instruction = {
+    .pulse_length_ns_HIGH = 0,
+    .pulse_length_ns_LOW = 3333,
+    .gpio = {.base = 4, .pin = 23},
+    .operation = APWM_OPERATION_SETUP
+};
 
 GPIO_Type *bases[] = {GPIO1, GPIO2, GPIO3, GPIO4, GPIO5};
 
@@ -234,6 +241,10 @@ static void app_task(void *param)
     struct rpmsg_lite_instance *volatile my_rpmsg;
     volatile rpmsg_ns_handle ns_handle;
 
+    volatile uint64_t pulse_length_ns;
+
+    char length_str[30] = {0};
+
     /* Print the initial banner */
     (void)PRINTF("\r\nRPMSG Arbitrary PWM FreeRTOS Demo...\r\n");
 
@@ -276,25 +287,22 @@ static void app_task(void *param)
     (void)PRINTF("recv Handshake: %s\r\n", helloMsg);
 #endif /* RPMSG_LITE_MASTER_IS_LINUX */
 
-    for (uint8_t i = 0; i < 10; i++) {
+    for (; ;) {
         PRINTF("Waiting for instruction...\r\n");
         rpmsg_queue_recv(my_rpmsg, my_queue, (uint32_t *)&remote_addr, (char *)&instruction, sizeof(APWM_INSTRUCTION), ((void *)0), RL_BLOCK);  // TODO: check if queue is best comm mechanism for this usecase
-        PRINTF("Received instruction from A53:\r\n");
-        PRINTF("\tlength: (d)%d\r\n", instruction.pulse_length_ns);
-        PRINTF("\tlength: (x)%x\r\n", instruction.pulse_length_ns);
-        PRINTF("\tlength: (u)%u\r\n", instruction.pulse_length_ns);
-        PRINTF("\top: %d\r\n", instruction.operation);
-        PRINTF("\tgpio: base: %d, pin: %d\r\n", instruction.gpio.base, instruction.gpio.pin);
+        pulse_length_ns = ((uint64_t)instruction.pulse_length_ns_HIGH << 32) | instruction.pulse_length_ns_LOW;
 
         if (instruction.operation == APWM_OPERATION_SETUP) {
-            PRINTF("calling pin init with base %d, pin %d (length %d)\r\n", bases[instruction.gpio.base], instruction.gpio.pin, instruction.pulse_length_ns);
+            sprintf(length_str, "%u", pulse_length_ns);
+            PRINTF("calling pin init with base %d, pin %d (length %s)\r\n", bases[instruction.gpio.base], instruction.gpio.pin, length_str);
             //GPIO_PinInit(bases[instruction.gpio.base], instruction.gpio.pin, &default_config);
         }
         else {
             curr_base = bases[instruction.gpio.base];
             curr_pin = instruction.gpio.pin;
-            PRINTF("calling pulse with base %d, pin %d, length %d\r\n", curr_base, curr_pin, instruction.pulse_length_ns);
-            //pulse(curr_base, curr_pin, instruction.pulse_length_ns);
+            sprintf(length_str, "%u", pulse_length_ns);
+            PRINTF("calling pulse with base %d, pin %d, length %s\r\n", curr_base, curr_pin, length_str);
+            //pulse(curr_base, curr_pin, pulse_length_ns);
         }
     }
 
