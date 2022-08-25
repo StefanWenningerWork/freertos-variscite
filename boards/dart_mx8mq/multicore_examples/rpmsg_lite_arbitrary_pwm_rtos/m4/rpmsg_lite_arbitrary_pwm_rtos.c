@@ -45,10 +45,17 @@ static char helloMsg[13];
 #define DEMO_ARBITRARY_PWM_IRQHandler PWM2_IRQHandler
 
 typedef enum {
-    APWM_OPERATION_SETUP            = (uint32_t)0,
-    APWM_OPERATION_FIRE             = (uint32_t)1,
+    APWM_OPERATION_SETUP_HIGH_PULSE = (uint32_t)0x00000000,
+    APWM_OPERATION_SETUP_LOW_PULSE  = (uint32_t)0x00000001,
+    APWM_OPERATION_FIRE_HIGH        = (uint32_t)0x00000010,
+    APWM_OPERATION_FIRE_LOW         = (uint32_t)0x00000011,
     APWM_OPERATION_MAKE_ENUM_32BIT  = (uint32_t)0xffffffff  // hack to have operation be the same size in A53 and M4
 } APWM_OPERATION;
+
+typedef enum {
+    PULSE_TYPE_HIGH = (uint8_t) 0U,   // NOTE: represents the value the pin needs to be set to after the pulse has ended
+    PULSE_TYPE_LOW  = (uint8_t) 1U
+} PULSE_TYPE;
 
 typedef struct {
     uint32_t base;
@@ -75,9 +82,10 @@ GPIO_Type* bases[] = {GPIO1, GPIO2, GPIO3, GPIO4, GPIO5};
  ******************************************************************************/
 static TaskHandle_t app_task_handle = NULL;
 pwm_config_t pwmConfig;
-gpio_pin_config_t default_config = {kGPIO_DigitalOutput, 0, kGPIO_NoIntmode};
+gpio_pin_config_t pin_config = {.direction = kGPIO_DigitalOutput, .outputLogic = 0, .interruptMode = kGPIO_NoIntmode};
 GPIO_Type* curr_base;
 uint32_t curr_pin;
+PULSE_TYPE curr_type;
 
 /*******************************************************************************
  * Code
@@ -85,8 +93,8 @@ uint32_t curr_pin;
 void DEMO_ARBITRARY_PWM_IRQHandler(void) {
     if (PWM_GetStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR) & kPWM_CompareFlag)
     {
-        PRINTF("Set pin low\r\n");
-        GPIO_PinWrite(curr_base, curr_pin, 0U);
+        GPIO_PinWrite(curr_base, curr_pin, curr_type);
+        PRINTF("Reset pin back to low/high\r\n");
         PWM_clearStatusFlags(DEMO_ARBITRARY_PWM_BASEADDR, kPWM_CompareFlag);
     }
 
@@ -99,9 +107,14 @@ static void app_nameservice_isr_cb(uint32_t new_ept, const char *new_ept_name, u
 {
 }
 
-void pulse(GPIO_Type* base, uint32_t pin, uint64_t length_ns) {
+void pulse(PULSE_TYPE type, GPIO_Type* base, uint32_t pin, uint64_t length_ns) {
     PRINTF("Starting pulse config...\r\n");
     uint64_t counter_steps = 0;
+    /* 0. Prepare global variables */
+    curr_base = base;
+    curr_pin = pin;
+    curr_type = type;
+
     /* 1. Stop PWM timer */
     // NOTE: no two pulses can happen at the same time
     //       maybe the kernel char device can block during the pulse and not allow another thread to access char device at the same time
@@ -154,9 +167,14 @@ void pulse(GPIO_Type* base, uint32_t pin, uint64_t length_ns) {
     PRINTF("Set Sample to %u\r\n", counter_steps);
 
     /* 3. Set pin high/low */
-    // TODO: pin and high/low needs to be passed into function
-    PRINTF("Set pin high\r\n");
-    GPIO_PinWrite(base, pin, 1U);
+    if (type == PULSE_TYPE_HIGH) {
+        PRINTF("Set pin high\r\n");
+        GPIO_PinWrite(base, pin, 1U);
+    }
+    else {
+        PRINTF("Set pin low\r\n");
+        GPIO_PinWrite(base, pin, 0U);
+    }
 
     /* 4. Start PWM timer */
     PRINTF("start timer\r\n");
@@ -247,22 +265,41 @@ static void app_task(void *param)
     (void)rpmsg_queue_recv(my_rpmsg, my_queue, (uint32_t *)&remote_addr, helloMsg, sizeof(helloMsg), ((void *)0), RL_BLOCK);
     (void)PRINTF("recv Handshake: %s\r\n", helloMsg);
 
-    for (; ;) {
+    for (;;) {
         PRINTF("Waiting for instruction...\r\n");
         rpmsg_queue_recv(my_rpmsg, my_queue, (uint32_t *)&remote_addr, (char *)&instruction, sizeof(APWM_INSTRUCTION), ((void *)0), RL_BLOCK);
         pulse_length_ns = ((uint64_t)instruction.pulse_length_ns_HIGH << 32) | instruction.pulse_length_ns_LOW;
 
-        if (instruction.operation == APWM_OPERATION_SETUP) {
-            sprintf(length_str, "0x%lx%lx\r\n", (uint32_t)(pulse_length_ns >> 32), (uint32_t)pulse_length_ns);
-            PRINTF("calling pin init with base %d, pin %d (length %s)\r\n", bases[instruction.gpio.base], instruction.gpio.pin, length_str);
-            GPIO_PinInit(bases[instruction.gpio.base], instruction.gpio.pin, &default_config);
-        }
-        else {
-            curr_base = bases[instruction.gpio.base];
-            curr_pin = instruction.gpio.pin;
-            sprintf(length_str, "0x%lx%lx\r\n", (uint32_t)(pulse_length_ns >> 32), (uint32_t)pulse_length_ns);
-            PRINTF("calling pulse with base %d, pin %d, length %s\r\n", curr_base, curr_pin, length_str);
-            pulse(curr_base, curr_pin, pulse_length_ns);
+        switch (instruction.operation) {
+            case APWM_OPERATION_SETUP_HIGH_PULSE:
+                PRINTF("initializing pin base %d, pin %d to low\r\n", bases[instruction.gpio.base], instruction.gpio.pin);
+                pin_config.outputLogic = 0;
+                GPIO_PinInit(bases[instruction.gpio.base], instruction.gpio.pin, &pin_config);
+                break;
+            
+            case APWM_OPERATION_SETUP_LOW_PULSE:
+                PRINTF("initializing pin base %d, pin %d to high\r\n", bases[instruction.gpio.base], instruction.gpio.pin);
+                pin_config.outputLogic = 1;
+                GPIO_PinInit(bases[instruction.gpio.base], instruction.gpio.pin, &pin_config);
+                break;
+            
+            case APWM_OPERATION_FIRE_HIGH:
+                // TODO: somehow check for this only being called on pins that are setup for high pulse
+                sprintf(length_str, "0x%lx%lx\r\n", (uint32_t)(pulse_length_ns >> 32), (uint32_t)pulse_length_ns);
+                PRINTF("executing high pulse on pin base %d, pin %d with length %s\r\n", curr_base, curr_pin, length_str);
+                pulse(PULSE_TYPE_HIGH, bases[instruction.gpio.base], instruction.gpio.pin, pulse_length_ns);
+                break;
+
+            case APWM_OPERATION_FIRE_LOW:
+                // TODO: somehow check for this only being called on pins that are setup for low pulse
+                sprintf(length_str, "0x%lx%lx\r\n", (uint32_t)(pulse_length_ns >> 32), (uint32_t)pulse_length_ns);
+                PRINTF("executing low pulse on pin base %d, pin %d with length %s\r\n", curr_base, curr_pin, length_str);
+                pulse(PULSE_TYPE_LOW, bases[instruction.gpio.base], instruction.gpio.pin, pulse_length_ns);
+                break;
+
+            default:
+                PRINTF("ERROR: unknown operation\r\n");
+                break;
         }
     }
 
