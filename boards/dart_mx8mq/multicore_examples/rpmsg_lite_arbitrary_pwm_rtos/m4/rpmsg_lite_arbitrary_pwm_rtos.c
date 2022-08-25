@@ -30,7 +30,6 @@
 #define RPMSG_LITE_LINK_ID            (RL_PLATFORM_IMX8MQ_M4_USER_LINK_ID)
 #define RPMSG_LITE_SHMEM_BASE         (VDEV0_VRING_BASE)
 #define RPMSG_LITE_NS_ANNOUNCE_STRING "rpmsg-openamp-demo-channel"
-#define RPMSG_LITE_MASTER_IS_LINUX
 
 #define APP_DEBUG_UART_BAUDRATE (115200U) /* Debug console baud rate. */
 #define APP_TASK_STACK_SIZE (256U)
@@ -39,16 +38,11 @@
 #endif
 #define APP_RPMSG_READY_EVENT_DATA (1U)
 
-#ifdef RPMSG_LITE_MASTER_IS_LINUX   // TODO: is this necessary?
 static char helloMsg[13];
-#endif /* RPMSG_LITE_MASTER_IS_LINUX */
 
 #define DEMO_ARBITRARY_PWM_BASEADDR   PWM2
 #define DEMO_ARBITRARY_PWM_IRQn       PWM2_IRQn
 #define DEMO_ARBITRARY_PWM_IRQHandler PWM2_IRQHandler
-
-#define EXAMPLE_LED_GPIO     GPIO3  // TODO: this should not be necessary anymore soon
-#define EXAMPLE_LED_GPIO_PIN 16U
 
 typedef enum {
     APWM_OPERATION_SETUP            = (uint32_t)0,
@@ -57,7 +51,6 @@ typedef enum {
 } APWM_OPERATION;
 
 typedef struct {
-    //GPIO_Type *base;    // TODO: this needs to be converted from input tp GPIO_Type
     uint32_t base;
     uint32_t pin;
 } GPIO_PIN;
@@ -69,14 +62,9 @@ typedef struct {
     APWM_OPERATION operation;       //4B
 } APWM_INSTRUCTION;
 
-static volatile APWM_INSTRUCTION instruction = {
-    .pulse_length_ns_HIGH = 0,
-    .pulse_length_ns_LOW = 3333,
-    .gpio = {.base = 4, .pin = 23},
-    .operation = APWM_OPERATION_SETUP
-};
+static volatile APWM_INSTRUCTION instruction = {0};
 
-GPIO_Type *bases[] = {GPIO1, GPIO2, GPIO3, GPIO4, GPIO5};
+GPIO_Type* bases[] = {GPIO1, GPIO2, GPIO3, GPIO4, GPIO5};
 
 /*******************************************************************************
  * Prototypes
@@ -111,20 +99,6 @@ static void app_nameservice_isr_cb(uint32_t new_ept, const char *new_ept_name, u
 {
 }
 
-#ifdef MCMGR_USED
-/*!
- * @brief Application-specific implementation of the SystemInitHook() weak function.
- */
-void SystemInitHook(void)
-{
-    /* Initialize MCMGR - low level multicore management library. Call this
-       function as close to the reset entry as possible to allow CoreUp event
-       triggering. The SystemInitHook() weak function overloading is used in this
-       application. */
-    (void)MCMGR_EarlyInit();
-}
-#endif /* MCMGR_USED */
-
 void pulse(GPIO_Type* base, uint32_t pin, uint64_t length_ns) {
     PRINTF("Starting pulse config...\r\n");
     uint64_t counter_steps = 0;
@@ -132,6 +106,8 @@ void pulse(GPIO_Type* base, uint32_t pin, uint64_t length_ns) {
     // NOTE: no two pulses can happen at the same time
     //       maybe the kernel char device can block during the pulse and not allow another thread to access char device at the same time
     //       PWM does not block, maybe have another rpmsg call "finished?" that checks a flag set by rollover ISR. Kernel driver blocks until that is set.
+    // TODO: this interface could have a pool of pulsers.
+    //       each pulser is associated with one PWM module. If one is free it is scheduled with a pulsing task. From there settings are set normally.
     PWM_StopTimer(DEMO_ARBITRARY_PWM_BASEADDR);
 
     /* 2. Setup Clock and PWM */
@@ -171,6 +147,7 @@ void pulse(GPIO_Type* base, uint32_t pin, uint64_t length_ns) {
     // NOTE: PWM module is 16Bit
     // NOTE: PWMO (HZ) = PCLK(Hz) / period+2    // TODO: is this really accurate?
     //       PWMO 1kHZ = 32kHz / 30+2
+    // TODO: tune timing of pulses
     PWM_SetPeriodValue(DEMO_ARBITRARY_PWM_BASEADDR, counter_steps); // PWM_PR[counter_steps] + 1
     PWM_SetSampleValue(DEMO_ARBITRARY_PWM_BASEADDR, counter_steps);
     // TODO: see if first pulse is with this sample value or the default one
@@ -243,29 +220,14 @@ static void app_task(void *param)
 
     volatile uint64_t pulse_length_ns;
 
-    char length_str[30] = {0};
+    char length_str[21] = {0};
 
     /* Print the initial banner */
     (void)PRINTF("\r\nRPMSG Arbitrary PWM FreeRTOS Demo...\r\n");
 
-#ifdef MCMGR_USED
-    uint32_t startupData;
-    mcmgr_status_t status;
-
-    /* Get the startup data */
-    do
-    {
-        status = MCMGR_GetStartupData(&startupData);
-    } while (status != kStatus_MCMGR_Success);
-
-    my_rpmsg = rpmsg_lite_remote_init((void *)(char *)startupData, RPMSG_LITE_LINK_ID, RL_NO_FLAGS);
-
-    /* Signal the other core we are ready by triggering the event and passing the APP_RPMSG_READY_EVENT_DATA */
-    (void)MCMGR_TriggerEvent(kMCMGR_RemoteApplicationEvent, APP_RPMSG_READY_EVENT_DATA);
-#else
     (void)PRINTF("RPMSG Share Base Addr is 0x%x\r\n", RPMSG_LITE_SHMEM_BASE);
     my_rpmsg = rpmsg_lite_remote_init((void *)RPMSG_LITE_SHMEM_BASE, RPMSG_LITE_LINK_ID, RL_NO_FLAGS);
-#endif /* MCMGR_USED */
+
     while (0 == rpmsg_lite_is_link_up(my_rpmsg))
     {
     }
@@ -281,15 +243,13 @@ static void app_task(void *param)
     (void)rpmsg_ns_announce(my_rpmsg, my_ept, RPMSG_LITE_NS_ANNOUNCE_STRING, (uint32_t)RL_NS_CREATE);
     (void)PRINTF("Nameservice announce sent.\r\n");
 
-#ifdef RPMSG_LITE_MASTER_IS_LINUX
     /* Wait Hello handshake message from Remote Core. */
     (void)rpmsg_queue_recv(my_rpmsg, my_queue, (uint32_t *)&remote_addr, helloMsg, sizeof(helloMsg), ((void *)0), RL_BLOCK);
     (void)PRINTF("recv Handshake: %s\r\n", helloMsg);
-#endif /* RPMSG_LITE_MASTER_IS_LINUX */
 
     for (; ;) {
         PRINTF("Waiting for instruction...\r\n");
-        rpmsg_queue_recv(my_rpmsg, my_queue, (uint32_t *)&remote_addr, (char *)&instruction, sizeof(APWM_INSTRUCTION), ((void *)0), RL_BLOCK);  // TODO: check if queue is best comm mechanism for this usecase
+        rpmsg_queue_recv(my_rpmsg, my_queue, (uint32_t *)&remote_addr, (char *)&instruction, sizeof(APWM_INSTRUCTION), ((void *)0), RL_BLOCK);
         pulse_length_ns = ((uint64_t)instruction.pulse_length_ns_HIGH << 32) | instruction.pulse_length_ns_LOW;
 
         if (instruction.operation == APWM_OPERATION_SETUP) {
@@ -328,7 +288,7 @@ static void app_task(void *param)
  */
 int main(void)
 {
-     /* Initialize standard SDK demo application pins */
+    /* Initialize standard SDK demo application pins */
     /* Board specific RDC settings */
     BOARD_RdcInit();
 
@@ -341,11 +301,6 @@ int main(void)
 
     /* Init PWM */
     init_pwm();
-
-#ifdef MCMGR_USED
-    /* Initialize MCMGR before calling its API */
-    (void)MCMGR_Init();
-#endif /* MCMGR_USED */
 
     if (xTaskCreate(app_task, "APP_TASK", APP_TASK_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1U, &app_task_handle) != pdPASS)
     {
