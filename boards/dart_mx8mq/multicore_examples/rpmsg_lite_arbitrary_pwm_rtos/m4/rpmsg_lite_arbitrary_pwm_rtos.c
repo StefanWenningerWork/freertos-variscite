@@ -64,7 +64,7 @@ typedef struct {
 
 typedef struct {
     GPIO_PIN gpio;                  //4B+4B
-    uint32_t pulse_length_ns_HIGH;  //4B
+    uint32_t pulse_length_ns_HIGH;  //4B    // TODO: maybe use DTO layer and map from "use"-struct to "dto"-struct
     uint32_t pulse_length_ns_LOW;   //4B
     APWM_OPERATION operation;       //4B
 } APWM_INSTRUCTION;
