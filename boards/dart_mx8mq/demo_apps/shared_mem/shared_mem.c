@@ -44,10 +44,21 @@ int main(void)
 
     PRINTF("shared mem experiments.\r\n");
 
-    unsigned char volatile * const mem_start = (unsigned char *)0x40500000;
-    *mem_start = 0x42;
-    PRINTF("wrote to address mem_start: 0x%p\r\n", mem_start);
-    PRINTF("value at mem_start is now: 0x%02x\r\n", *mem_start);
+    PRINTF("Wait for kernel to have started...\r\n");
+    for (int y = 0; y < 10; ++y) {
+        SDK_DelayAtLeastUs(1000000U, SDK_DEVICE_MAXIMUM_CPU_CLOCK_FREQUENCY);
+    }
+
+    unsigned char volatile * const mem = (unsigned char *)0xB0000000;
+    size_t len = 0x177000;
+
+    PRINTF("start writing shared memory\r\n");
+    size_t i;
+    for (i = 0; i < len; ++i) {
+        mem[i] = 0xAA;
+    }
+    PRINTF("finished writing shared memory\r\n");
+    PRINTF("Wrote %u bytes\r\n", i);
 
     /*
     void* addr = NULL;
