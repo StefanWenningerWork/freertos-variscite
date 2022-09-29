@@ -60,31 +60,6 @@ int main(void)
     PRINTF("finished writing shared memory\r\n");
     PRINTF("Wrote %u bytes\r\n", i);
 
-    /*
-    void* addr = NULL;
-    size_t len = 0x177000;
-    off_t offset = 0x40500000;
-
-    int fd = open("/dev/mem", O_RDWR | O_SYNC);
-    if (fd < 0) {
-        perror("Can't open /dev/mem");
-        return -1;
-    }
-
-    unsigned char* mem = mmap(addr, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, offset);
-    if (mem == MAP_FAILED) {
-        perror("Can't map memory");
-        return -1;
-    }
-
-    size_t i;
-    for (i = 0; i < 255; ++i) {
-        mem[i] = i;
-    }
-
-    close(fd);
-    */
-
     while (1)
     {
         ;;

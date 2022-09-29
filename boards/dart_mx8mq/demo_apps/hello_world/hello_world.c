@@ -43,10 +43,10 @@ int main(void)
     while (1)
     {
         PRINTF("hello world.\r\n");
-        for (long i = 0; i < 20000000; i++) {
-            ;
-        }
-        //ch = GETCHAR();
-        //PUTCHAR(ch);
+
+        PRINTF("waiting to receive a char...\r\n");
+        ch = GETCHAR();
+        PRINTF("received a char\r\n");
+        PUTCHAR(ch);
     }
 }
