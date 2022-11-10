@@ -17,10 +17,10 @@
 #define M4_OUT_UART             UART3
 #define M4_OUT_UART_CLK_FREQ    BOARD_DEBUG_UART_CLK_FREQ
 #define M4_OUT_UART_BAUDRATE    115200U
-#define M4_OUT_IRQn             UART3_IRQn
-#define M4_OUT_UART_IRQHandler  UART3_IRQHandler
 
 #define A53_LOG_UART            UART1
+#define A53_LOG_UART_IRQn       UART1_IRQn
+#define A53_LOG_UART_IRQHandler UART1_IRQHandler
 
 /*! @brief Ring buffer size (Unit: Byte). */
 #define DEMO_RING_BUFFER_SIZE 16
@@ -53,14 +53,14 @@ volatile uint16_t rxIndex; /* Index of the memory to save new arrived data. */
  * Code
  ******************************************************************************/
 
-void M4_OUT_UART_IRQHandler(void)
+void A53_LOG_UART_IRQHandler(void)
 {
     uint8_t data;
 
     /* If new data arrived (RRDY || ORE). */
-    if ((UART_GetStatusFlag(M4_OUT_UART, kUART_RxDataReadyFlag)) || (UART_GetStatusFlag(M4_OUT_UART, kUART_RxOverrunFlag)))
+    if ((UART_GetStatusFlag(A53_LOG_UART, kUART_RxDataReadyFlag)) || (UART_GetStatusFlag(A53_LOG_UART, kUART_RxOverrunFlag)))
     {
-        data = UART_ReadByte(M4_OUT_UART);
+        data = UART_ReadByte(A53_LOG_UART);
 
         /* If ring buffer is not full, add data to ring buffer. */
         if (((rxIndex + 1) % DEMO_RING_BUFFER_SIZE) != txIndex)
@@ -113,7 +113,7 @@ int main(void)
 
     /* Enable RX interrupt of A53_LOG_UART (RDDYEN | OREN). */
     UART_EnableInterrupts(A53_LOG_UART, kUART_RxDataReadyEnable | kUART_RxOverrunEnable);
-    EnableIRQ(A53_LOG_UART);
+    EnableIRQ(A53_LOG_UART_IRQn);
 
     while (1)
     {
