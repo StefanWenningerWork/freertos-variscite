@@ -38,6 +38,12 @@
 uint8_t g_tipString[] =
     "Uart functional API interrupt example\r\nBoard receives characters then sends them out\r\nNow please input:\r\n";
 
+uint8_t loopbackActiveString[] =
+    "loopback has been detected by uboot -> leave RX IRQ active\r\n";
+
+uint8_t loopbackInactiveString[] =
+    "loopback has not been detected by uboot -> attempt to disable RX IRQ\r\n";
+
 /*
   Ring buffer for data input and output, in this example, input data are saved
   to ring buffer in IRQ handler. The main function polls the ring buffer status,
@@ -111,10 +117,25 @@ int main(void)
     /* Send g_tipString out. */
     UART_WriteBlocking(M4_OUT_UART, g_tipString, sizeof(g_tipString) / sizeof(g_tipString[0]) - 1);
 
-    /* Enable RX interrupt of A53_LOG_UART (RDDYEN | OREN). */
-    UART_EnableInterrupts(A53_LOG_UART, kUART_RxDataReadyEnable | kUART_RxOverrunEnable);
-    EnableIRQ(A53_LOG_UART_IRQn);
+    /* check if UART1 loopback is supposed to be active */
+    if (A53_LOG_UART->UTS & UART_UTS_LOOP_MASK) {
+        UART_WriteBlocking(M4_OUT_UART, loopbackActiveString, sizeof(loopbackActiveString) / sizeof(loopbackActiveString[0]) - 1);
 
+        /* Enable RX interrupt of A53_LOG_UART (RDDYEN | OREN). */
+        UART_EnableInterrupts(A53_LOG_UART, kUART_RxDataReadyEnable | kUART_RxOverrunEnable);
+        EnableIRQ(A53_LOG_UART_IRQn);
+
+        // TODO: if deactivating interrupt does not work use function pointer in ISR and let it point to NOP.
+        //          Could also have the LOOP==1 test in the ISR directly -> should actually be faster since function call takes more cycles than if?
+        //          ==> deactivating seems to work though, and linux ISR still bites
+    }
+    else {
+        UART_WriteBlocking(M4_OUT_UART, loopbackInactiveString, sizeof(loopbackInactiveString) / sizeof(loopbackInactiveString[0]) - 1);
+
+        /* Disable RX interrupt of A53_LOG_UART (RDDYEN | OREN). */
+        UART_DisableInterrupts(A53_LOG_UART, kUART_RxDataReadyEnable | kUART_RxOverrunEnable);
+    }
+    
     while (1)
     {
         /* Send data only when UART TX register is empty and ring buffer has data to send out. */
